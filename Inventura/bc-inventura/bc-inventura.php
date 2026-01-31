@@ -2,13 +2,13 @@
 /**
  * Plugin Name: BC Inventúra (Breznianska cukráreň)
  * Description: Denné inventúrne hárky pre stánky (Prior) + príjem/predaj/akcie/odpis + export/print. Pripravené na sync z PWA (woo-search).
- * Version: 0.2.32-modular
+ * Version: 0.2.33-modular
  * Author: Slavio + Joyee
  */
 
 if (!defined('ABSPATH')) exit;
 
-define('BC_INV_VERSION', '0.2.32-modular');
+define('BC_INV_VERSION', '0.2.33-modular');
 define('BC_INV_PATH', plugin_dir_path(__FILE__));
 define('BC_INV_URL', plugin_dir_url(__FILE__));
 define('BC_INV_MODULES', BC_INV_PATH . 'modules/');
