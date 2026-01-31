@@ -7,6 +7,33 @@ if (!defined('ABSPATH')) exit;
 trait BC_Inv_Trait_Leads {
 
   /**
+   * Write audit log entry related to leads.
+   */
+  protected static function audit_lead(string $action, ?int $store_id, ?int $lead_id, array $payload = []) {
+    global $wpdb;
+    $tAudit = self::table('audit');
+
+    $row = [
+      'store_id' => $store_id ? (int) $store_id : null,
+      'sheet_post_id' => null,
+      'actor_user_id' => (int) (function_exists('get_current_user_id') ? get_current_user_id() : 0),
+      'action' => sanitize_key($action),
+      'payload' => (function_exists('wp_json_encode') ? wp_json_encode(array_merge([
+        'lead_id' => $lead_id ? (int) $lead_id : null,
+      ], $payload)) : json_encode(array_merge([
+        'lead_id' => $lead_id ? (int) $lead_id : null,
+      ], $payload))),
+    ];
+
+    // Best-effort audit (never break primary flow on audit failure)
+    try {
+      $wpdb->insert($tAudit, $row);
+    } catch (\Throwable $e) {
+      // noop
+    }
+  }
+
+  /**
    * Create a lead.
    *
    * @param array $lead
@@ -26,7 +53,12 @@ trait BC_Inv_Trait_Leads {
     if ($ok === false) {
       throw new RuntimeException('DB insert failed (leads)');
     }
-    return (int) $wpdb->insert_id;
+    $lead_id = (int) $wpdb->insert_id;
+    self::audit_lead('lead_create', (int)$data['store_id'], $lead_id, [
+      'source' => $data['source'] ?? null,
+      'status' => $data['status'] ?? null,
+    ]);
+    return $lead_id; 
   }
 
   /**
@@ -123,21 +155,39 @@ trait BC_Inv_Trait_Leads {
     // Do not allow changing primary key
     unset($patch['id']);
 
+    $before = self::get_lead($lead_id);
     $data = self::sanitize_lead_data($patch, false);
     if (!$data) return false;
 
     $ok = $wpdb->update($tLeads, $data, ['id' => $lead_id]);
-    return ($ok !== false);
+    $success = ($ok !== false);
+    if ($success) {
+      // Try to infer store_id (prefer current row)
+      $store_id = null;
+      if (isset($before['store_id'])) $store_id = (int) $before['store_id'];
+      if (isset($data['store_id'])) $store_id = (int) $data['store_id'];
+      self::audit_lead('lead_edit', $store_id, $lead_id, [
+        'changed' => array_keys($data),
+      ]);
+    }
+    return $success; 
   }
 
   /**
    * Soft delete lead (keeps row, hides from default lists).
    */
   public static function delete_lead(int $lead_id) {
-    return self::edit_lead($lead_id, [
+    $row = self::get_lead($lead_id);
+    $ok = self::edit_lead($lead_id, [
       'status' => 'deleted',
       'deleted_at' => current_time('mysql'),
     ]);
+    if ($ok) {
+      self::audit_lead('lead_soft_delete', isset($row['store_id']) ? (int)$row['store_id'] : null, $lead_id, [
+        'prev_status' => $row['status'] ?? null,
+      ]);
+    }
+    return $ok;
   }
 
   /**
@@ -152,10 +202,17 @@ trait BC_Inv_Trait_Leads {
     if ($status === '' || $status === 'deleted') {
       $status = 'new';
     }
-    return self::edit_lead($lead_id, [
+    $row = self::get_lead($lead_id);
+    $ok = self::edit_lead($lead_id, [
       'status' => $status,
       'deleted_at' => null,
     ]);
+    if ($ok) {
+      self::audit_lead('lead_restore', isset($row['store_id']) ? (int)$row['store_id'] : null, $lead_id, [
+        'to_status' => $status,
+      ]);
+    }
+    return $ok;
   }
 
   /**
@@ -164,8 +221,15 @@ trait BC_Inv_Trait_Leads {
   public static function hard_delete_lead(int $lead_id) {
     global $wpdb;
     $tLeads = self::table('leads');
+    $before = self::get_lead($lead_id);
     $ok = $wpdb->delete($tLeads, ['id' => $lead_id]);
-    return ($ok !== false);
+    $success = ($ok !== false);
+    if ($success) {
+      self::audit_lead('lead_hard_delete', isset($before['store_id']) ? (int)$before['store_id'] : null, $lead_id, [
+        'snapshot' => $before,
+      ]);
+    }
+    return $success;
   }
 
   /**
