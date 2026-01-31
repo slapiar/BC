@@ -78,8 +78,13 @@ trait BC_Inv_Trait_Reservations {
         $sql2 = "SELECT COUNT(*) FROM $tRes WHERE store_id = %d AND pickup_at BETWEEN %s AND %s AND status IN ($placeholders)";
         $args2 = array_merge([$store_id, $win_from, $win_to], $statuses);
         if ($rid > 0) { $sql2 .= " AND id <> %d"; $args2[] = $rid; }
+
+        // Match by email or phone in a grouped condition to avoid precedence issues (AND/OR).
+        $sql2 .= " AND (1=1";
         if ($email_norm) { $sql2 .= " AND LOWER(customer_email) = %s"; $args2[] = $email_norm; }
-        if ($phone_norm) { $sql2 .= ($email_norm ? " OR " : " AND ") . "customer_phone = %s"; $args2[] = (string)$reservation['customer_phone']; }
+        if ($phone_norm) { $sql2 .= " OR customer_phone = %s"; $args2[] = (string)$reservation['customer_phone']; }
+        $sql2 .= ")";
+
         $cnt = (int)$wpdb->get_var($wpdb->prepare($sql2, $args2));
       }
       if ($cnt > 0) { $flags[] = 'DUPLICATE'; $score -= 25; }
