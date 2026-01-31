@@ -33,7 +33,7 @@ class BC_Inventura {
   const REST_NS = 'bc-inventura/v1';
 
   // DB schema version (increment when dbDelta definitions change)
-  const DB_VERSION = '0.2.6';
+  const DB_VERSION = '0.2.7';
 
   use BC_Inv_Trait_Core;
   use BC_Inv_Trait_DB;
