@@ -1,2 +1,2 @@
-# BC
-Beznianska cukráreň Inventúry a PWA. 
+# BC WP Plugin
+Breznianska cukráreň Inventúry a PWA. 

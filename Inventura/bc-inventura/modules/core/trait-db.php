@@ -153,6 +153,7 @@ trait BC_Inv_Trait_DB {
       interest VARCHAR(190) NULL,
       note TEXT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'new',
+      deleted_at DATETIME NULL,
       consent TINYINT(1) NOT NULL DEFAULT 0,
       consent_at DATETIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -160,6 +161,7 @@ trait BC_Inv_Trait_DB {
       PRIMARY KEY (id),
       KEY store_id (store_id),
       KEY status (status),
+      KEY deleted_at (deleted_at),
       KEY created_at (created_at),
       KEY email (email),
       KEY phone (phone)

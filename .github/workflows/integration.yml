@@ -19,8 +19,10 @@ jobs:
         run: |
           php -l bc-inventura/modules/core/trait-db.php
           php -l bc-inventura/modules/services/trait-reservations.php
+          php -l bc-inventura/modules/services/trait-leads.php
           php -l bc-inventura/bc-inventura.php
       - name: Run integration tests
         run: |
           php -f tests/integration/test_transactions.php
           php -f tests/integration/test_maybe_upgrade_db_leads.php
+          php -f tests/integration/test_leads_soft_delete.php
