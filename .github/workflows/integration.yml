@@ -1,0 +1,26 @@
+name: Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  php-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+      - name: PHP lint
+        run: |
+          php -l bc-inventura/modules/core/trait-db.php
+          php -l bc-inventura/modules/services/trait-reservations.php
+          php -l bc-inventura/bc-inventura.php
+      - name: Run integration tests
+        run: |
+          php -f tests/integration/test_transactions.php
+          php -f tests/integration/test_maybe_upgrade_db_leads.php
