@@ -21,6 +21,7 @@ require_once BC_INV_MODULES . 'core/trait-access.php';
 
 // Admin UI trait
 require_once BC_INV_MODULES . 'admin/trait-admin-ui.php';
+require_once BC_INV_MODULES . 'admin/trait-audit-ui.php';
 
 // Services traits
 require_once BC_INV_MODULES . 'services/trait-sheets.php';
@@ -41,6 +42,7 @@ class BC_Inventura {
   use BC_Inv_Trait_CPT_Admin;
   use BC_Inv_Trait_Access;
   use BC_Inv_Trait_Admin_UI;
+  use BC_Inv_Trait_Admin_Audit_UI;
   use BC_Inv_Trait_Sheets;
   use BC_Inv_Trait_Reservations;
   use BC_Inv_Trait_Leads;

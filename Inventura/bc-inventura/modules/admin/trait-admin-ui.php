@@ -120,6 +120,11 @@ public static
       [__CLASS__, 'page_stores']
     );
 
+    // Register audit submenu (if available)
+    if (method_exists(__CLASS__, 'register_audit_menu')) {
+      self::register_audit_menu();
+    }
+
     // Etapa 4.6: Prístupy k prevádzkam (priradenie užívateľov a rolí ku konkrétnej prevádzke).
     add_submenu_page(
       'bc-inventura',
