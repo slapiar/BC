@@ -7,16 +7,16 @@ if (!defined('ABSPATH')) exit;
 trait BC_Inv_Trait_Admin_Audit_UI {
 
   public static function register_audit_menu() {
-    // conservative capability; we can later switch to plugin-specific cap
-    if (!current_user_can('manage_options')) return;
+    // Allow manager/editor roles similar to main plugin access
+    if (!self::current_user_can_manage()) return;
 
-    // Put it under the Inventúra CPT menu (edit.php?post_type=...)
-    $parent = 'edit.php?post_type=' . self::CPT;
+    // Put it under the main Inventúra menu (same parent used by other submenus)
+    $parent = 'bc-inventura';
     add_submenu_page(
       $parent,
       'Audit log',
       'Audit log',
-      'manage_options',
+      'edit_posts',
       'bc-inventura-audit',
       [__CLASS__, 'render_audit_page']
     );
