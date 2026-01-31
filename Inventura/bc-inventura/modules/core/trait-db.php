@@ -54,13 +54,13 @@ trait BC_Inv_Trait_DB {
     $charset = $wpdb->get_charset_collate();
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-    $tStores = $wpdb->prefix . 'bc_inv_stores';
-    $tStoreUsers = $wpdb->prefix . 'bc_inv_store_users';
-    $tAudit = $wpdb->prefix . 'bc_inv_audit';
-    $tCustomers = $wpdb->prefix . 'bc_inv_customers';
-    $tRes = $wpdb->prefix . 'bc_inv_reservations';
-    $tResItems = $wpdb->prefix . 'bc_inv_reservation_items';
-    $tEmailLog = $wpdb->prefix . 'bc_inv_email_log';
+    $tStores = self::table('stores');
+    $tStoreUsers = self::table('store_users');
+    $tAudit = self::table('audit');
+    $tCustomers = self::table('customers');
+    $tRes = self::table('reservations');
+    $tResItems = self::table('reservation_items');
+    $tEmailLog = self::table('email_log');
 
     // Stores
     dbDelta("CREATE TABLE $tStores (
