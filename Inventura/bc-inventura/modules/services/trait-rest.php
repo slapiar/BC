@@ -123,7 +123,26 @@ trait BC_Inv_Trait_REST {
       },
       'callback' => [__CLASS__, 'rest_convert_reservation_to_order'],
     ]);
-
+    // Audit viewer
+    register_rest_route(self::REST_NS, '/audit', [
+      'methods' => 'GET',
+      'permission_callback' => function($req) {
+        if (!is_user_logged_in() || !self::verify_rest_nonce()) return false;
+        // If store_id provided, require store access
+        $store_id = (int) $req->get_param('store_id');
+        if ($store_id > 0) return self::current_user_has_store_access($store_id);
+        return self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_get_audit'],
+      'args' => [
+        'store_id' => ['required' => false],
+        'action' => ['required' => false],
+        'limit' => ['required' => false],
+        'offset' => ['required' => false],
+        'date_from' => ['required' => false],
+        'date_to' => ['required' => false],
+      ],
+    ]);
   }
 
   public static function rest_post_sheet(WP_REST_Request $req) {
@@ -162,6 +181,46 @@ trait BC_Inv_Trait_REST {
 
     $data = self::get_latest_sheet_data($prevadzka);
     return new WP_REST_Response(['ok' => true, 'sheet' => $data], 200);
+  }
+
+  public static function rest_get_audit(WP_REST_Request $req) {
+    global $wpdb;
+
+    $tAudit = self::table('audit');
+
+    $store_id = (int) $req->get_param('store_id');
+    $action = sanitize_text_field((string) $req->get_param('action'));
+    $limit = (int) $req->get_param('limit'); if ($limit <= 0) $limit = 100; if ($limit > 500) $limit = 500;
+    $offset = (int) $req->get_param('offset'); if ($offset < 0) $offset = 0;
+    $date_from = sanitize_text_field((string) $req->get_param('date_from'));
+    $date_to = sanitize_text_field((string) $req->get_param('date_to'));
+
+    $where = [];
+    $params = [];
+
+    if ($store_id > 0) { $where[] = 'store_id=%d'; $params[] = $store_id; }
+    if ($action !== '') { $where[] = 'action=%s'; $params[] = $action; }
+    if ($date_from !== '') { $ts = strtotime($date_from); if ($ts) { $where[] = 'created_at >= %s'; $params[] = date('Y-m-d H:i:s', $ts); } }
+    if ($date_to !== '') { $ts = strtotime($date_to); if ($ts) { $where[] = 'created_at <= %s'; $params[] = date('Y-m-d H:i:s', $ts); } }
+
+    $sql = "SELECT * FROM $tAudit";
+    if ($where) { $sql .= ' WHERE ' . implode(' AND ', $where); }
+    $sql .= ' ORDER BY created_at DESC';
+    $sql .= $wpdb->prepare(' LIMIT %d OFFSET %d', $limit, $offset);
+
+    if ($params) { $sql = $wpdb->prepare($sql, $params); }
+
+    $rows = $wpdb->get_results($sql, ARRAY_A);
+    // Decode payload JSON where possible
+    foreach ($rows as &$r) {
+      $r['payload_decoded'] = null;
+      if (!empty($r['payload'])) {
+        $d = json_decode($r['payload'], true);
+        if (json_last_error() === JSON_ERROR_NONE) $r['payload_decoded'] = $d;
+      }
+    }
+
+    return new WP_REST_Response(['ok' => true, 'rows' => $rows, 'count' => count($rows)], 200);
   }
 
   public static function rest_create_reservation(WP_REST_Request $req) {
