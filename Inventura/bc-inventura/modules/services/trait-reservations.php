@@ -611,7 +611,7 @@ public static function create_admin_reservation($payload) {
       $slot_end_ts = $slot_start_ts + ($cap_interval * 60);
 
       global $wpdb;
-      $tRes = $wpdb->prefix . 'bc_inv_reservations';
+      $tRes = self::table('reservations');
 
       $slot_start = date('Y-m-d H:i:s', $slot_start_ts);
       $slot_end = date('Y-m-d H:i:s', $slot_end_ts);
