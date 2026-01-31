@@ -529,7 +529,7 @@ trait BC_Inv_Trait_Reservations {
 // ===== Etapa B1: Admin create reservation (form) =====
 private static function upsert_customer_manual($name, $phone, $email) {
   global $wpdb;
-  $t = $wpdb->prefix . 'bc_inv_customers';
+  $t = self::table('customers');
 
   $name = $name ? sanitize_text_field((string)$name) : '';
   $phone = $phone ? sanitize_text_field((string)$phone) : '';
