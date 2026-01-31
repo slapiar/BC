@@ -32,6 +32,22 @@ trait BC_Inv_Trait_DB {
     return $wpdb->prefix . $map[$key];
   }
 
+  /**
+   * Run DB operations in a transaction.
+   */
+  protected static function with_transaction(callable $fn) {
+    global $wpdb;
+    try {
+      $wpdb->query('START TRANSACTION');
+      $result = $fn();
+      $wpdb->query('COMMIT');
+      return $result;
+    } catch (\Throwable $e) {
+      $wpdb->query('ROLLBACK');
+      throw $e;
+    }
+  }
+
   public static function activate() {
     // Some hosts keep PHP OPcache aggressively; clear it on activation to ensure
     // new code is actually loaded (prevents "phantom" fatals after updates).
