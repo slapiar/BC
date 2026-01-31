@@ -151,50 +151,68 @@ trait BC_Inv_Trait_Sheets {
       $post_id = (int)$last['id'];
       $version = (int)$last['version'];
 
-      update_post_meta($post_id, '_bc_inventura_header', $sheet['header']);
-      update_post_meta($post_id, '_bc_inventura_rows', $sheet['rows']);
-      update_post_meta($post_id, '_bc_sheet_updated_at', current_time('mysql'));
+      return self::with_transaction(function () use ($post_id, $sheet, $version, $store, $date_norm, $user_name) {
+        update_post_meta($post_id, '_bc_inventura_header', $sheet['header']);
+        update_post_meta($post_id, '_bc_inventura_rows', $sheet['rows']);
+        update_post_meta($post_id, '_bc_sheet_updated_at', current_time('mysql'));
 
-      wp_update_post([
-        'ID' => $post_id,
-        'post_title' => sprintf('%s – %s #%d – %s', $store, $date_norm, $version, $user_name),
-      ]);
+        wp_update_post([
+          'ID' => $post_id,
+          'post_title' => sprintf('%s – %s #%d – %s', $store, $date_norm, $version, $user_name),
+        ]);
 
-      // pre ajax odpoveď
-      update_post_meta($post_id, '_bc_sheet_last_response_version', $version);
-      return $post_id;
+        // pre ajax odpoveď
+        update_post_meta($post_id, '_bc_sheet_last_response_version', $version);
+
+        $changed = [];
+        if (isset($sheet['header'])) $changed[] = 'header';
+        if (isset($sheet['rows'])) $changed[] = 'rows';
+        self::audit_sheet('sheet_edit', null, $post_id, [
+          'changed' => $changed,
+          'overwritten' => true,
+        ]);
+
+        return $post_id;
+      });
     }
 
     // Nová verzia
     $version = $last ? ((int)$last['version'] + 1) : 1;
     $title = sprintf('%s – %s #%d – %s', $store, $date_norm, $version, $user_name);
 
-    $post_id = wp_insert_post([
-      'post_type' => self::CPT,
-      'post_status' => 'publish',
-      'post_title' => $title,
-      'post_author' => $user_id,
-    ], true);
+    return self::with_transaction(function () use ($title, $user_id, $sheet, $store, $date_norm, $sheet_key, $version) {
+      $post_id = wp_insert_post([
+        'post_type' => self::CPT,
+        'post_status' => 'publish',
+        'post_title' => $title,
+        'post_author' => $user_id,
+      ], true);
 
-    if (is_wp_error($post_id)) {
+      if (is_wp_error($post_id)) {
+        return $post_id;
+      }
+
+      update_post_meta($post_id, '_bc_inventura_header', $sheet['header']);
+      update_post_meta($post_id, '_bc_inventura_rows', $sheet['rows']);
+
+      // meta rodiny
+      update_post_meta($post_id, '_bc_sheet_store', $store);
+      update_post_meta($post_id, '_bc_sheet_date', $date_norm);
+      update_post_meta($post_id, '_bc_sheet_user_id', $user_id);
+      update_post_meta($post_id, '_bc_sheet_user_name', $user_name);
+      update_post_meta($post_id, '_bc_sheet_key', $sheet_key);
+      update_post_meta($post_id, '_bc_sheet_version', $version);
+      update_post_meta($post_id, '_bc_sheet_created_at', current_time('mysql'));
+
+      // pre ajax odpoveď
+      update_post_meta($post_id, '_bc_sheet_last_response_version', $version);
+
+      self::audit_sheet('sheet_create', null, $post_id, [
+        'items_count' => is_array($sheet['rows']) ? count($sheet['rows']) : 0,
+      ]);
+
       return $post_id;
-    }
-
-    update_post_meta($post_id, '_bc_inventura_header', $sheet['header']);
-    update_post_meta($post_id, '_bc_inventura_rows', $sheet['rows']);
-
-    // meta rodiny
-    update_post_meta($post_id, '_bc_sheet_store', $store);
-    update_post_meta($post_id, '_bc_sheet_date', $date_norm);
-    update_post_meta($post_id, '_bc_sheet_user_id', $user_id);
-    update_post_meta($post_id, '_bc_sheet_user_name', $user_name);
-    update_post_meta($post_id, '_bc_sheet_key', $sheet_key);
-    update_post_meta($post_id, '_bc_sheet_version', $version);
-    update_post_meta($post_id, '_bc_sheet_created_at', current_time('mysql'));
-
-    // pre ajax odpoveď
-    update_post_meta($post_id, '_bc_sheet_last_response_version', $version);
-    return $post_id;
+    });
   }
 
   private static function get_latest_sheet_data($prevadzka) {
