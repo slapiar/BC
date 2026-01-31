@@ -6,6 +6,8 @@ trait BC_Inv_Trait_Core {
   public static function init() {
     add_action('init', [__CLASS__, 'register_cpt']);
     add_action('admin_menu', [__CLASS__, 'admin_menu']);
+    // Admin viewer for audit log
+    add_action('admin_menu', [__CLASS__, 'register_audit_menu'], 30);
     add_action('rest_api_init', [__CLASS__, 'register_rest']);
     add_action('admin_enqueue_scripts', [__CLASS__, 'admin_assets']);
     // DB install / upgrade (safe, idempotent)
