@@ -20,6 +20,7 @@ trait BC_Inv_Trait_DB {
       'store_users'        => 'bc_inv_store_users',
       'audit'              => 'bc_inv_audit',
       'customers'          => 'bc_inv_customers',
+      'leads'              => 'bc_inv_leads',
       'reservations'       => 'bc_inv_reservations',
       'reservation_items'  => 'bc_inv_reservation_items',
       'email_log'          => 'bc_inv_email_log',
@@ -74,6 +75,7 @@ trait BC_Inv_Trait_DB {
     $tStoreUsers = self::table('store_users');
     $tAudit = self::table('audit');
     $tCustomers = self::table('customers');
+    $tLeads = self::table('leads');
     $tRes = self::table('reservations');
     $tResItems = self::table('reservation_items');
     $tEmailLog = self::table('email_log');
@@ -136,6 +138,29 @@ trait BC_Inv_Trait_DB {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY wp_user_id (wp_user_id),
+      KEY email (email),
+      KEY phone (phone)
+    ) $charset;");
+
+    // Leads (interest before becoming a customer/reservation)
+    dbDelta("CREATE TABLE $tLeads (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      store_id BIGINT UNSIGNED NOT NULL,
+      source VARCHAR(30) NOT NULL DEFAULT 'pwa',
+      name VARCHAR(190) NULL,
+      email VARCHAR(190) NULL,
+      phone VARCHAR(50) NULL,
+      interest VARCHAR(190) NULL,
+      note TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'new',
+      consent TINYINT(1) NOT NULL DEFAULT 0,
+      consent_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY store_id (store_id),
+      KEY status (status),
+      KEY created_at (created_at),
       KEY email (email),
       KEY phone (phone)
     ) $charset;");
