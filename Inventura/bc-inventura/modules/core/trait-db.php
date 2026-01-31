@@ -7,6 +7,31 @@ if (!defined('ABSPATH')) exit;
  */
 trait BC_Inv_Trait_DB {
 
+  /**
+   * Return full table name by logical key.
+   *
+   * Usage: self::table('reservations')
+   */
+  protected static function table($key) {
+    global $wpdb;
+
+    $map = [
+      'stores'             => 'bc_inv_stores',
+      'store_users'        => 'bc_inv_store_users',
+      'audit'              => 'bc_inv_audit',
+      'customers'          => 'bc_inv_customers',
+      'reservations'       => 'bc_inv_reservations',
+      'reservation_items'  => 'bc_inv_reservation_items',
+      'email_log'          => 'bc_inv_email_log',
+    ];
+
+    if (!isset($map[$key])) {
+      throw new InvalidArgumentException('Unknown Inventura table key: ' . $key);
+    }
+
+    return $wpdb->prefix . $map[$key];
+  }
+
   public static function activate() {
     // Some hosts keep PHP OPcache aggressively; clear it on activation to ensure
     // new code is actually loaded (prevents "phantom" fatals after updates).
