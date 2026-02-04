@@ -169,30 +169,30 @@ trait BC_Inv_Trait_Chat_Admin {
                 <td><?php echo $expires; ?></td>
                 <td>
                   <?php if ($status === 'pending'): ?>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'approve', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'approve', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-primary button-small"
                        onclick="return confirm('Approve access for <?php echo esc_js($nickname); ?>?');">
                       ✅ Approve
                     </a>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'deny', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'deny', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-small"
                        onclick="return confirm('Deny access for <?php echo esc_js($nickname); ?>?');">
                       ⛔ Deny
                     </a>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'wait', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'wait', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-small">
                       🕒 Wait
                     </a>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'expire', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'expire', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-small">
                       🧨 Expire
                     </a>
                   <?php elseif ($status === 'waiting'): ?>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'approve', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'approve', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-primary button-small">
                       ✅ Approve
                     </a>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(['action' => 'deny', 'request_id' => $id]), 'chat_access_action_' . $id); ?>" 
+                    <a href="<?php echo esc_url(wp_nonce_url(add_query_arg(['action' => 'deny', 'request_id' => $id]), 'chat_access_action_' . $id)); ?>" 
                        class="button button-small">
                       ⛔ Deny
                     </a>

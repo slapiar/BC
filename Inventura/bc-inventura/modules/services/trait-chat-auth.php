@@ -235,8 +235,13 @@ trait BC_Inv_Trait_Chat_Auth {
       (int)$request_id
     ), ARRAY_A);
     
-    if (!$request || $request['status'] !== 'pending') {
-      return new WP_Error('invalid_request', 'Request not found or not pending');
+    if (!$request) {
+      return new WP_Error('invalid_request', 'Request not found');
+    }
+    
+    // Allow approval from pending or waiting status
+    if (!in_array($request['status'], ['pending', 'waiting'], true)) {
+      return new WP_Error('invalid_status', 'Request must be pending or waiting to approve');
     }
     
     // Get or create WP user
@@ -295,8 +300,13 @@ trait BC_Inv_Trait_Chat_Auth {
       (int)$request_id
     ), ARRAY_A);
     
-    if (!$request || $request['status'] !== 'pending') {
-      return new WP_Error('invalid_request', 'Request not found or not pending');
+    if (!$request) {
+      return new WP_Error('invalid_request', 'Request not found');
+    }
+    
+    // Allow denial from pending or waiting status
+    if (!in_array($request['status'], ['pending', 'waiting'], true)) {
+      return new WP_Error('invalid_status', 'Request must be pending or waiting to deny');
     }
     
     // Update device status to denied
