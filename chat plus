@@ -1,0 +1,274 @@
+# PWA Chat – metodika + TODO pre Copilota (onboarding, admin queue, osobné miestnosti, úlohy, odznaky, hlas)
+
+## Cieľ
+Zjednotiť metodiku chatu tak, aby:
+- žiadateľ o prístup mal jasný flow (“Zadaj nickname a Pripoj sa”),
+- Admin mal prehľadný zoznam žiadostí (approve/deny/wait) + vedel odpojiť/odobrať používateľa,
+- každý potvrdený člen mohol osloviť kohokoľvek (osobné miestnosti pre každého),
+- panel chatu signalizoval: kto komunikuje, kto chce hovoriť, kto má úlohy; veci “pre mňa” svietia červeno,
+- “úlohy” fungovali priamo v chate (notifikácie, termíny, potvrdenia “Hotovo” všetkými dotknutými, finálne potvrdenie zadávateľom),
+- bežná komunikácia medzi 2 ľuďmi sa berie ako otvorená, kým obaja nestlačia “Hotovo”,
+- hlasové diktovanie po slovensky pre textové polia v chate.
+
+---
+
+## 0) Zásada (Poka-Yoke)
+Nič nesmie “visieť naslepo”.
+- Pending prístup je vždy viditeľný v Admin queue (s menom/nickname a časom).
+- Pending záznam musí mať expirácie + stav (pending/approved/denied/expired).
+- PWA nesmie vytvárať “neidentifikované” žiadosti, ktoré Admin nevie priradiť ku konkrétnej osobe.
+
+---
+
+## 1) Flow: Žiadateľ o prístup (PWA UI)
+### 1.1 Stavový model na klientovi
+- Ak device nie je `active`, PWA zobrazuje onboarding obrazovku:
+  - text input: `nickname`
+  - tlačidlo: **“Zadaj svoj nickname a Pripoj sa”**
+  - po kliknutí sa volá `POST /auth/request-access` (viď backend)
+- Až po úspešnom approve (device active + refresh ok) sa zobrazí chat.
+
+### 1.2 Povinné údaje v requeste
+- `device_id` (X-Device-Id)
+- `nickname` (min 2 znaky, max 32)
+- voliteľne `phone_hint` (NEpýtať sa na číslo zo zariadenia; len ak ho user zadá)
+- `client_info`: platform, app_version (voliteľné)
+
+### 1.3 UX po odoslaní žiadosti
+- stav: “Čaká na schválenie”
+- zobraziť:
+  - “Zavolajte Adminovi a povedzte: Nickname + Kód”
+- kód generuje server (approval_code), PWA ho len zobrazí.
+
+---
+
+## 2) Admin: Queue žiadateľov + akcie
+### 2.1 Admin screen “Žiadosti o prístup”
+V WP admin pridať menu: **Chat → Žiadosti o prístup**
+Zobraziť tabuľku:
+- created_at (čas)
+- nickname
+- device_id (skrátene)
+- status: pending / waiting / denied / expired / approved
+- last_seen / count pokusov (voliteľné)
+Akcie na riadku:
+- ✅ Approve
+- ⛔ Deny
+- 🕒 Wait (označí ako “waiting” – Admin si to odloží)
+- 🧨 Expire now (okamžite expirovať)
+- 🔍 Detail (log, poznámka)
+
+### 2.2 Admin akcia “Approve”
+- nastaví device status -> `active`
+- priradí/ vytvorí WP user (podľa interného modelu)
+- založí personal room (viď bod 3)
+- zapíše audit log
+
+### 2.3 Admin akcia “Deny”
+- nastaví device status -> `denied` (alebo revoked)
+- revokuje sessions (ak existujú)
+- audit log
+
+### 2.4 Admin akcia “Disconnect / Remove from chat”
+V zozname používateľov (Chat → Členovia) pridať:
+- **Disconnect device** (revokuje sessions + status=revoked)
+- **Remove user from chat** (deaktivuje chat rolu, voliteľne soft delete jeho thread listy)
+- (Hard delete len admin, s potvrdením)
+
+---
+
+## 3) Metodika miestností (rooms)
+### 3.1 Typy miestností
+A) **Shared rooms** – účelové (napr. “Výroba”, “Predajňa”)
+B) **Personal room** pre každého člena – “inbox” daného člena
+
+### 3.2 Pravidlo oslovenia kohokoľvek
+- Každý člen má právo poslať správu do **personal room** iného člena:
+  - napr. room slug: `user:{user_id}` alebo `inbox:{user_id}`
+- UI: v kontakte klik “Napísať” → otvorí personal room príjemcu
+
+### 3.3 “Pre mňa” svieti červeno
+- V paneli chatu (BadgeBar) ak položka smeruje do môjho personal room a je:
+  - unread message alebo open task/request
+  → badge background = červená (token `--badge-for-me`)
+
+---
+
+## 4) Panel chatu: odznaky (badges) a kontrolky
+### 4.1 Badge zdroje
+Backend endpoint: `GET /threads/badges` (už navrhnuté)
+Musí vrátiť:
+- peer user
+- room/thread id
+- unread_count
+- open_tasks_count
+- open_requests_count
+- active_connection flag (optional)
+- `badge_state` computed server-side
+
+### 4.2 Badge pravidlá (priorita)
+1) **for_me_urgent** (červená) – urgent alebo deadline blízko, a týka sa mňa
+2) urgent_task/request (oranžová)
+3) pending_task/request (žltá)
+4) unread_messages (modrá)
+5) active_connection (zelená)
+6) idle (nezobrazovať)
+
+### 4.3 “Kto práve komunikuje”
+- definícia MVP: “má neprečítané” alebo “posledná aktivita < 2 min”
+- zobraz v BadgeBar jemný “pulse ring” (CSS) pre active communication
+
+---
+
+## 5) Úlohy a požiadavky ako “chat items”
+### 5.1 Item typy
+Zaviesť jednotné položky (event stream):
+- message
+- task
+- request
+- system
+
+### 5.2 Úloha: model
+- task_id
+- thread_id alebo room_id (kam úloha patrí)
+- created_by
+- assignees[] (zoznam user_id, koho sa týka)
+- watchers[] (optional)
+- due_at (optional)
+- status: open / in_progress / done / archived
+- priority: normal / high / urgent
+- acknowledgements:
+  - `done_by[user_id]=timestamp` (kto stlačil Hotovo)
+- final_done_at: timestamp (nastane až keď potvrdí zadávateľ)
+
+### 5.3 Logika “Hotovo”
+- Každý dotknutý (assignee) má tlačidlo **Hotovo**
+  - klik: `POST /tasks/{id}/done` → zapíše done_by pre user
+- Zadávateľ (created_by) má tiež **Hotovo** (finálne potvrdenie)
+- Úloha je vizuálne:
+  - “čaká na potvrdenia” (ak done_by neobsahuje všetkých assignees)
+  - “čaká na finálne potvrdenie zadávateľom” (ak všetci assignees done, ale creator nie)
+  - “splnená” až keď:
+    - všetci assignees done AND creator done
+  - potom UI: preškrtnúť + presun do Completed filter
+
+### 5.4 Bežná komunikácia (2 ľudia) = otvorená, kým obaja nedajú Hotovo
+Implementovať “Conversation Closure” pre 1:1 thread:
+- thread má `closure_state`:
+  - open
+  - closed_by_me
+  - closed_by_peer
+  - closed (obaja)
+- tlačidlo “Hotovo” v header 1:1 thread:
+  - klik: `POST /threads/{id}/close` (per user)
+- UI:
+  - ak closed (obaja): thread označiť ako “uzavretý” a v zozname dať do “Closed”
+  - ak len jeden: zobraziť “Čaká na Hotovo od druhej strany”
+
+---
+
+## 6) Notifikácie a termíny
+### 6.1 Zmeny úlohy
+Každá zmena (status, due_at, done_by) generuje system item do threadu:
+- “Jano označil Hotovo”
+- “Termín sa blíži za 2 hodiny”
+- “Zadávateľ potvrdil splnené”
+
+### 6.2 Blížiaci sa termín
+MVP:
+- server cron (WP cron) každých X min:
+  - nájde tasks s due_at < now + threshold a status != done
+  - vytvorí system item + badge_state nastaví urgent
+- threshold: 24h a 2h (konfig)
+
+---
+
+## 7) Filtre v detaile threadu
+V ThreadDetail pridať filter pills:
+- All
+- Messages
+- Tasks
+- Requests
+- System
++ filter status:
+- Open
+- Done
+- Archived
+
+Implementovať parametre:
+- `GET /threads/{id}/items?type=task&status=open`
+
+---
+
+## 8) Soft/Hard delete
+### 8.1 Soft delete
+- user si skryje item alebo celý thread pre seba
+- endpoint: `POST /items/{id}/soft-delete`
+- pre thread: `POST /threads/{id}/hide`
+
+### 8.2 Hard delete
+- len admin
+- endpoint: `DELETE /items/{id}`
+- UI musí mať confirm + fallback na soft delete pri 403
+
+---
+
+## 9) Hlasové zadávanie po slovensky (Speech-to-text)
+### 9.1 MVP implementácia (Web Speech API)
+- Pridať ikonku mikrofónu vedľa inputu správy a vedľa tvorby úlohy
+- Použiť `SpeechRecognition` (webkitSpeechRecognition) ak je dostupné
+- Nastaviť:
+  - `lang = 'sk-SK'`
+  - `interimResults = true`
+  - `continuous = false` (MVP)
+- Po diktovaní vložiť text do inputu, user môže upraviť a odoslať.
+
+### 9.2 Fallback
+Ak SpeechRecognition nie je dostupné:
+- skry mikrofón alebo zobraz tooltip “Tento prehliadač nepodporuje diktovanie”
+
+### 9.3 Bezpečnosť/UX
+- jasná indikácia “nahrávam” (červená bodka)
+- stop tlačidlo
+- nezapínať automaticky bez user akcie
+
+---
+
+## 10) Endpointy (súhrn)
+- `POST /auth/request-access` (device_id + nickname) -> pending + approval_code
+- `GET /admin/access-requests` (list)
+- `POST /admin/access-requests/{id}/approve`
+- `POST /admin/access-requests/{id}/deny`
+- `POST /admin/users/{user_id}/disconnect`
+- `GET /threads/badges`
+- `GET /threads/{id}/items`
+- `POST /threads/{id}/items` (message/task/request)
+- `POST /tasks/{id}/done`
+- `POST /threads/{id}/close`
+- `POST /items/{id}/soft-delete`
+- `DELETE /items/{id}` (admin)
+- `POST /threads/{id}/mark-read`
+
+---
+
+## 11) Akceptačné kritériá (must-pass)
+1) Nepripojený user vidí iba onboarding s nickname + pripoj sa.
+2) Admin vidí queue pending žiadostí s nickname + časom + akciami approve/deny/wait.
+3) Po approve sa user dostane do chatu bez ďalších krokov.
+4) Každý člen môže otvoriť personal room kohokoľvek.
+5) “Pre mňa” notifikácie svietia červeno v BadgeBar.
+6) Task “Hotovo” funguje: splnená až po potvrdení všetkých assignees + creator.
+7) 1:1 thread sa označí uzavretý až keď obaja dajú Hotovo.
+8) Hlasové diktovanie funguje v Chrome/Android pre sk-SK; fallback je bezpečný.
+
+---
+
+## Implementačná stratégia (aby sme sa nezasekli)
+Fáza 1: Admin queue + onboarding nickname + approve/deny/wait + personal rooms
+Fáza 2: BadgeBar výpočty + “pre mňa” červené + mark-read
+Fáza 3: Tasks + done workflow + deadline cron + system events
+Fáza 4: Conversation closure (Hotovo pre 1:1)
+Fáza 5: Soft/hard delete
+Fáza 6: Speech-to-text (sk-SK)
+
+Copilot: postupovať striktne po fázach, bez refactoru mimo fázy.
