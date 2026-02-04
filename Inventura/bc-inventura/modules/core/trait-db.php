@@ -24,6 +24,9 @@ trait BC_Inv_Trait_DB {
       'reservations'       => 'bc_inv_reservations',
       'reservation_items'  => 'bc_inv_reservation_items',
       'email_log'          => 'bc_inv_email_log',
+      'devices'            => 'bc_inv_devices',
+      'access_requests'    => 'bc_inv_access_requests',
+      'chat_rooms'         => 'bc_inv_chat_rooms',
     ];
 
     if (!isset($map[$key])) {
@@ -79,6 +82,9 @@ trait BC_Inv_Trait_DB {
     $tRes = self::table('reservations');
     $tResItems = self::table('reservation_items');
     $tEmailLog = self::table('email_log');
+    $tDevices = self::table('devices');
+    $tAccessRequests = self::table('access_requests');
+    $tChatRooms = self::table('chat_rooms');
 
     // Stores
     dbDelta("CREATE TABLE $tStores (
@@ -236,6 +242,69 @@ trait BC_Inv_Trait_DB {
       KEY mail_type (mail_type),
       KEY ok (ok),
       KEY created_at (created_at)
+    ) $charset;");
+
+    // Phase 1: Devices (for chat access control)
+    dbDelta("CREATE TABLE $tDevices (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      device_id VARCHAR(64) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      wp_user_id BIGINT UNSIGNED NULL,
+      nickname VARCHAR(32) NULL,
+      phone_hint VARCHAR(50) NULL,
+      client_info TEXT NULL,
+      last_seen_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY device_id (device_id),
+      KEY status (status),
+      KEY wp_user_id (wp_user_id),
+      KEY created_at (created_at)
+    ) $charset;");
+
+    // Phase 1: Access Requests (pending approval queue)
+    dbDelta("CREATE TABLE $tAccessRequests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      device_id VARCHAR(64) NOT NULL,
+      nickname VARCHAR(32) NOT NULL,
+      approval_code VARCHAR(10) NOT NULL,
+      phone_hint VARCHAR(50) NULL,
+      client_info TEXT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      approved_by_user_id BIGINT UNSIGNED NULL,
+      approved_at DATETIME NULL,
+      denied_by_user_id BIGINT UNSIGNED NULL,
+      denied_at DATETIME NULL,
+      expires_at DATETIME NULL,
+      last_check_at DATETIME NULL,
+      attempt_count INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY device_id (device_id),
+      KEY status (status),
+      KEY approval_code (approval_code),
+      KEY expires_at (expires_at),
+      KEY created_at (created_at)
+    ) $charset;");
+
+    // Phase 1: Chat Rooms (personal inbox + shared rooms)
+    dbDelta("CREATE TABLE $tChatRooms (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      slug VARCHAR(100) NOT NULL,
+      type VARCHAR(20) NOT NULL DEFAULT 'personal',
+      owner_user_id BIGINT UNSIGNED NULL,
+      name VARCHAR(190) NULL,
+      description TEXT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY slug (slug),
+      KEY type (type),
+      KEY owner_user_id (owner_user_id),
+      KEY is_active (is_active)
     ) $charset;");
 
     update_option('bc_inv_db_version', self::DB_VERSION, false);
