@@ -22,6 +22,7 @@ require_once BC_INV_MODULES . 'core/trait-access.php';
 // Admin UI trait
 require_once BC_INV_MODULES . 'admin/trait-admin-ui.php';
 require_once BC_INV_MODULES . 'admin/trait-audit-ui.php';
+require_once BC_INV_MODULES . 'admin/trait-chat-admin.php';
 
 // Services traits
 require_once BC_INV_MODULES . 'services/trait-sheets.php';
@@ -29,13 +30,14 @@ require_once BC_INV_MODULES . 'services/trait-reservations.php';
 require_once BC_INV_MODULES . 'services/trait-leads.php';
 require_once BC_INV_MODULES . 'services/trait-rest.php';
 require_once BC_INV_MODULES . 'services/trait-upload.php';
+require_once BC_INV_MODULES . 'services/trait-chat-auth.php';
 
 class BC_Inventura {
   const CPT = 'bc_inventura';
   const REST_NS = 'bc-inventura/v1';
 
   // DB schema version (increment when dbDelta definitions change)
-  const DB_VERSION = '0.2.8';
+  const DB_VERSION = '0.3.0';
 
   use BC_Inv_Trait_Core;
   use BC_Inv_Trait_DB;
@@ -43,11 +45,13 @@ class BC_Inventura {
   use BC_Inv_Trait_Access;
   use BC_Inv_Trait_Admin_UI;
   use BC_Inv_Trait_Admin_Audit_UI;
+  use BC_Inv_Trait_Chat_Admin;
   use BC_Inv_Trait_Sheets;
   use BC_Inv_Trait_Reservations;
   use BC_Inv_Trait_Leads;
   use BC_Inv_Trait_REST;
   use BC_Inv_Trait_Upload;
+  use BC_Inv_Trait_Chat_Auth;
 }
 
 // Bootstrap

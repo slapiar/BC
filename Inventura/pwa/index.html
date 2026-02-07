@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BC Chat - Onboarding</title>
+  <meta name="description" content="Breznianska cukráreň - Chat prístup">
+  <link rel="manifest" href="manifest.json">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+      color: #333;
+      text-align: center;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .error {
+      background: #fee;
+      border: 1px solid #fcc;
+      color: #c33;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .success {
+      background: #efe;
+      border: 1px solid #cfc;
+      color: #363;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .waiting-screen {
+      text-align: center;
+    }
+
+    .approval-code {
+      background: #f5f5f5;
+      padding: 30px;
+      border-radius: 12px;
+      margin: 30px 0;
+      border: 3px dashed #667eea;
+    }
+
+    .approval-code-label {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+
+    .approval-code-value {
+      font-size: 48px;
+      font-weight: bold;
+      color: #667eea;
+      letter-spacing: 8px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .instructions {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .instructions strong {
+      color: #856404;
+    }
+
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .status-checking {
+      text-align: center;
+      color: #666;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+
+    .char-counter {
+      font-size: 12px;
+      color: #999;
+      margin-top: 5px;
+      text-align: right;
+    }
+
+    .char-counter.error {
+      color: #c33;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 30px 20px;
+      }
+      
+      h1 {
+        font-size: 24px;
+      }
+
+      .approval-code-value {
+        font-size: 36px;
+        letter-spacing: 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="onboarding-screen">
+      <h1>🍰 BC Chat</h1>
+      <p class="subtitle">Breznianska cukráreň</p>
+      
+      <div id="error-message" class="error" style="display: none;"></div>
+      
+      <form id="onboarding-form">
+        <div class="form-group">
+          <label for="nickname">Tvoj nickname</label>
+          <input 
+            type="text" 
+            id="nickname" 
+            name="nickname" 
+            placeholder="Zadaj svoje meno alebo prezývku"
+            minlength="2"
+            maxlength="32"
+            required
+            autocomplete="off"
+          >
+          <div class="char-counter">
+            <span id="char-count">0</span>/32 znakov (min. 2)
+          </div>
+        </div>
+        
+        <button type="submit" class="btn" id="submit-btn">
+          Zadaj svoj nickname a Pripoj sa
+        </button>
+      </form>
+    </div>
+
+    <div id="waiting-screen" class="waiting-screen" style="display: none;">
+      <h1>⏳ Čaká na schválenie</h1>
+      
+      <div class="approval-code">
+        <div class="approval-code-label">Tvoj schvaľovací kód:</div>
+        <div class="approval-code-value" id="approval-code-display">------</div>
+      </div>
+
+      <div class="instructions">
+        <strong>📞 Zavolajte Adminovi a povedzte:</strong><br>
+        Nickname: <strong id="nickname-display"></strong><br>
+        Kód: <strong id="code-display-text"></strong>
+      </div>
+
+      <div class="spinner"></div>
+      <div class="status-checking">
+        Kontrolujem stav schválenia...<br>
+        <small>Stránka sa automaticky obnoví po schválení.</small>
+      </div>
+    </div>
+
+    <div id="active-screen" style="display: none;">
+      <h1>✅ Prístup schválený!</h1>
+      <p style="text-align: center; margin: 20px 0; color: #666;">
+        Tvoj prístup bol schválený. Chat sa čoskoro načíta...
+      </p>
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration - Update this with your WordPress site URL
+    const API_BASE_URL = '/wp-json/bc-inventura/v1';
+    
+    // Device ID management
+    function getDeviceId() {
+      let deviceId = localStorage.getItem('bc_device_id');
+      if (!deviceId) {
+        deviceId = 'dev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('bc_device_id', deviceId);
+      }
+      return deviceId;
+    }
+
+    const deviceId = getDeviceId();
+
+    // Elements
+    const onboardingScreen = document.getElementById('onboarding-screen');
+    const waitingScreen = document.getElementById('waiting-screen');
+    const activeScreen = document.getElementById('active-screen');
+    const form = document.getElementById('onboarding-form');
+    const nicknameInput = document.getElementById('nickname');
+    const submitBtn = document.getElementById('submit-btn');
+    const errorMsg = document.getElementById('error-message');
+    const charCount = document.getElementById('char-count');
+
+    // Character counter
+    nicknameInput.addEventListener('input', () => {
+      const len = nicknameInput.value.length;
+      charCount.textContent = len;
+      
+      const counter = charCount.parentElement;
+      if (len < 2 || len > 32) {
+        counter.classList.add('error');
+      } else {
+        counter.classList.remove('error');
+      }
+    });
+
+    // Check device status on load
+    async function checkDeviceStatus() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/device-status`, {
+          headers: {
+            'X-Device-Id': deviceId
+          }
+        });
+        
+        const data = await response.json();
+        
+        if (data.ok && data.active) {
+          // Device is active, show success screen
+          showActiveScreen();
+          // Redirect to main chat after a moment
+          setTimeout(() => {
+            // TODO: redirect to actual chat interface
+            window.location.href = '/chat';
+          }, 2000);
+          return true;
+        }
+        
+        // Check if we have a pending request
+        const pendingCode = localStorage.getItem('bc_approval_code');
+        const pendingNickname = localStorage.getItem('bc_nickname');
+        
+        if (pendingCode && pendingNickname && data.status === 'pending') {
+          // Show waiting screen with stored code
+          showWaitingScreen(pendingCode, pendingNickname);
+          startStatusPolling();
+          return true;
+        }
+        
+        return false;
+      } catch (error) {
+        console.error('Error checking device status:', error);
+        return false;
+      }
+    }
+
+    // Submit access request
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const nickname = nicknameInput.value.trim();
+      
+      if (nickname.length < 2 || nickname.length > 32) {
+        showError('Nickname musí mať 2-32 znakov');
+        return;
+      }
+      
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Odosielam...';
+      hideError();
+      
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/request-access`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Device-Id': deviceId
+          },
+          body: JSON.stringify({
+            nickname: nickname,
+            client_info: {
+              platform: navigator.platform,
+              user_agent: navigator.userAgent,
+              screen: `${screen.width}x${screen.height}`
+            }
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (data.ok && data.approval_code) {
+          // Store data for future loads
+          localStorage.setItem('bc_approval_code', data.approval_code);
+          localStorage.setItem('bc_nickname', nickname);
+          
+          // Show waiting screen
+          showWaitingScreen(data.approval_code, nickname);
+          startStatusPolling();
+        } else {
+          showError(data.error || 'Nepodarilo sa odoslať žiadosť');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Zadaj svoj nickname a Pripoj sa';
+        }
+      } catch (error) {
+        console.error('Error submitting request:', error);
+        showError('Chyba spojenia. Skúste to znova.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Zadaj svoj nickname a Pripoj sa';
+      }
+    });
+
+    function showError(message) {
+      errorMsg.textContent = message;
+      errorMsg.style.display = 'block';
+    }
+
+    function hideError() {
+      errorMsg.style.display = 'none';
+    }
+
+    function showWaitingScreen(approvalCode, nickname) {
+      document.getElementById('approval-code-display').textContent = approvalCode;
+      document.getElementById('nickname-display').textContent = nickname;
+      document.getElementById('code-display-text').textContent = approvalCode;
+      
+      onboardingScreen.style.display = 'none';
+      waitingScreen.style.display = 'block';
+      activeScreen.style.display = 'none';
+    }
+
+    function showActiveScreen() {
+      onboardingScreen.style.display = 'none';
+      waitingScreen.style.display = 'none';
+      activeScreen.style.display = 'block';
+    }
+
+    // Poll device status
+    let pollingInterval;
+    function startStatusPolling() {
+      // Poll every 5 seconds
+      pollingInterval = setInterval(async () => {
+        const isActive = await checkDeviceStatus();
+        if (isActive) {
+          clearInterval(pollingInterval);
+        }
+      }, 5000);
+    }
+
+    // Initialize
+    checkDeviceStatus();
+  </script>
+</body>
+</html>

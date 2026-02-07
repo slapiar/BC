@@ -143,6 +143,20 @@ trait BC_Inv_Trait_REST {
         'date_to' => ['required' => false],
       ],
     ]);
+
+    // Phase 1: Chat access request (public endpoint, no auth required)
+    register_rest_route(self::REST_NS, '/auth/request-access', [
+      'methods' => 'POST',
+      'permission_callback' => '__return_true', // Public endpoint
+      'callback' => [__CLASS__, 'rest_request_access'],
+    ]);
+
+    // Phase 1: Device status check (public endpoint, no auth required)
+    register_rest_route(self::REST_NS, '/auth/device-status', [
+      'methods' => 'GET',
+      'permission_callback' => '__return_true', // Public endpoint
+      'callback' => [__CLASS__, 'rest_device_status'],
+    ]);
   }
 
   public static function rest_post_sheet(WP_REST_Request $req) {
