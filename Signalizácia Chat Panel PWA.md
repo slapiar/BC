@@ -56,7 +56,8 @@ MVP zaviesť jednotný event stream s typom:
 - `priority` enum: `low | normal | high | urgent`
 - `created_at`, `updated_at`
 - `created_by` (user_id)
-- `thread_id`
+- `thread_id` XOR `room_id`
+- `room_id`
 - `deleted_by_me_at` (nullable datetime)  // soft delete pre mňa
 - `deleted_hard_at` (nullable datetime)   // hard delete (admin/owner only)
 
@@ -87,6 +88,8 @@ erDiagram
   USER ||--o{ THREAD : participates
   THREAD ||--o{ ITEM : contains
   ROOM ||--o{ ITEM : contains
+  ITEM }o--|| THREAD : parent_thread
+  ITEM }o--|| ROOM : parent_room
 ```
 
 ---
@@ -307,17 +310,13 @@ Server nastaví `created_by`, `created_at`
 - nastaví všetky messages (alebo relevant items) ako prečítané
 - update unread_count
 
-### 8) POST `/threads/{thread_id}/resolve`
-- nastaví stav “Hotovo” pre konkrétneho účastníka
-- pri 1:1 sa thread považuje za uzavretý až po potvrdení oboma stranami
-
-### 9) POST `/items/{id}/done`
+### 8) POST `/items/{id}/done`
 - Hotovo pre aktuálneho usera (`done_by[user_id]`)
 
-### 10) POST `/items/{id}/confirm`
+### 9) POST `/items/{id}/confirm`
 - Hotovo creator (`confirmed_by_creator_at`)
 
-### 11) POST `/threads/{id}/close`
+### 10) POST `/threads/{id}/close`
 - Hotovo pre konverzáciu (`closed_by[user_id]`)
 
 ---
@@ -326,7 +325,7 @@ Server nastaví `created_by`, `created_at`
 Implementovať deterministicky na serveri pri `/threads/badges`:
 - Získať open items pre thread (requests/tasks) + unread messages.
 - Pravidlá:
-  - ak existuje "pre mňa" udalosť v inbox/dm:
+  - ak existuje "pre mňa" udalosť v inbox alebo `target_user_id = me`:
     - urgent => `for_me_urgent`
     - inak => `for_me`
   - ak existuje open item s priority=urgent => urgent_request
@@ -425,6 +424,11 @@ Pozn.: Pre MVP stačí `pending_request` + `unread_messages` + `urgent_request`.
   - iný beep pri novej pending access request v admin (iba ak admin stránka aktívna)
   - voliteľne textová notifikácia (toast) vždy
 
+- Auto-open admin page (MVP realisticky):
+  - neotvárať novú stránku automaticky,
+  - ak je admin aktívny, zobraziť toast/highlight + zvuk,
+  - mimo aktívneho adminu sa len uloží stav a zobrazí pri najbližšom otvorení.
+
 ---
 
 ## Admin audit/prepínač “zobraziť históriu komunikácie”
@@ -443,7 +447,7 @@ Pozn.: Pre MVP stačí `pending_request` + `unread_messages` + `urgent_request`.
 4) delete + archive
 5) voice + sound
 
-- Keď nejaké zariadenie žiada o schválenie, musí byť admin v plugine o tom upvedomený zvukovým signálom, a stránka so žiadosťou sa musí automaticky objaviť. Tam už musí byť adminovi zjavné kto to je. Teda nicname sa musí zadať už v PWA. Buď nejaký popup alebo sa rovno nechá políčko, zadaj nic name a toto nickname sa musí zobrazovať aj v PWA namiesto slova Prihlásený. Inak môže prísť viac žiadostí naraz a admin nevie komu volať o potvrdenie
+- Keď nejaké zariadenie žiada o schválenie, admin dostane zvukovy signal a aktivny admin vidi toast/highlight. Stranka sa automaticky neotvara; stav sa zobrazi pri najblizsom otvoreni.
 - Zoznam chat-ov musí byť pre Admina dostupný tak, že kliknutím na riadok zoznamu sa otvorí záznam o celej komunikácii, aby sa dalo dosledovať, sporné požiadavky, keď jeden tvrdí, že poslal, tak musí byť o tom dohľadateľný záznam. Rovnako, je potrebné mazať tie chaty, ktoré sú nežiadúce alebo už nepotrebné.
 - Mazanie chatov prebieha v dvoch krokoch: najprv **soft delete** (chat sa skryje z bežného prehľadu aj z PWA, ale ostáva v databáze a v admin archíve), následne môže admin spraviť **hard delete** (definitívne vymazanie z DB podľa potreby, aby sa neplnilo úložisko).
 - Admin má v plugine k dispozícii aj **archív miestností chatu** – miestnosť sa dá archivovať (prestane sa ponúkať v PWA, ale história správ zostáva dostupná v admin prehľade) a kedykoľvek znovu obnoviť.
