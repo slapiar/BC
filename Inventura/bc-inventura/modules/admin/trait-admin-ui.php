@@ -40,12 +40,10 @@ trait BC_Inv_Trait_Admin_UI {
     return trim($html);
   }
 
-public static 
-
   /**
    * Ľudské vysvetlenia systémových značiek (flagov) – aby personál nemusel hádať.
    */
-  function render_flags_help($system_flags): string {
+  public static function render_flags_help($system_flags): string {
     $flags = [];
     if (is_array($system_flags)) {
       $flags = $system_flags;
@@ -143,6 +141,15 @@ public static
       'edit_posts',
       'bc-inventura-reservations',
       [__CLASS__, 'page_reservations']
+    );
+
+    add_submenu_page(
+      'bc-inventura',
+      'Chat – Žiadosti o prístup',
+      'Chat – Žiadosti o prístup',
+      'manage_options',
+      'bc-inventura-chat-access',
+      [__CLASS__, 'page_chat_access_requests']
     );
 
 
@@ -873,6 +880,162 @@ public static function page_reservation_new() {
 
   echo '</div>';
 }
+
+  public static function page_chat_access_requests() {
+    if (!self::current_user_can_manage()) {
+      wp_die('Nemáš oprávnenie.');
+    }
+
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $notice = '';
+    $now = self::auth_now();
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['bc_inv_chat_access_nonce'])) {
+      if (!wp_verify_nonce(sanitize_text_field($_POST['bc_inv_chat_access_nonce']), 'bc_inv_chat_access_action')) {
+        wp_die('Neplatny nonce.');
+      }
+      $id = isset($_POST['req_id']) ? (int) $_POST['req_id'] : 0;
+      $act = isset($_POST['req_action']) ? sanitize_text_field($_POST['req_action']) : '';
+
+      if ($id > 0 && in_array($act, ['approve','deny','wait'], true)) {
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id=%d", $id), ARRAY_A);
+        if ($row) {
+          if ($act === 'approve') {
+            $nickname = (string) ($row['nickname'] ?? '');
+            $user_id = (int) ($row['user_id'] ?? 0);
+            if ($user_id <= 0) {
+              $user_id = self::auth_create_user_from_nickname($nickname, (string) $row['device_id']);
+            }
+            if ($user_id > 0) {
+              $wpdb->update($t, [
+                'status' => 'active',
+                'user_id' => $user_id,
+                'approved_by' => (int) get_current_user_id(),
+                'approved_at' => $now,
+                'updated_at' => $now,
+              ], ['id' => $id]);
+              self::auth_audit('auth_request_approved', [
+                'device_id' => (string) ($row['device_id'] ?? ''),
+                'user_id' => $user_id,
+              ]);
+              $notice = 'Poziadavka bola schvalena.';
+            } else {
+              $notice = 'Nepodarilo sa vytvorit uzivatela.';
+            }
+          }
+
+          if ($act === 'deny') {
+            $wpdb->update($t, ['status' => 'denied', 'updated_at' => $now], ['id' => $id]);
+            self::auth_audit('auth_request_denied', [
+              'device_id' => (string) ($row['device_id'] ?? ''),
+            ]);
+            $notice = 'Poziadavka bola zamietnuta.';
+          }
+
+          if ($act === 'wait') {
+            $wpdb->update($t, ['status' => 'waiting', 'updated_at' => $now], ['id' => $id]);
+            self::auth_audit('auth_request_wait', [
+              'device_id' => (string) ($row['device_id'] ?? ''),
+            ]);
+            $notice = 'Poziadavka bola nastavena na waiting.';
+          }
+        }
+      }
+    }
+
+    $status = isset($_GET['status']) ? sanitize_text_field((string) $_GET['status']) : '';
+    $where = '';
+    $args = [];
+    if ($status !== '') {
+      $where = ' WHERE status = %s';
+      $args[] = $status;
+    }
+    $sql = "SELECT * FROM $t" . $where . ' ORDER BY created_at DESC';
+    if ($args) {
+      $sql = $wpdb->prepare($sql, $args);
+    }
+    $rows = $wpdb->get_results($sql, ARRAY_A);
+
+    echo '<div class="wrap">';
+    echo '<h1>Chat – Žiadosti o prístup</h1>';
+    if ($notice !== '') {
+      echo '<div class="notice notice-success"><p>' . esc_html($notice) . '</p></div>';
+    }
+
+    echo '<form method="get" style="margin:12px 0;">';
+    echo '<input type="hidden" name="page" value="bc-inventura-chat-access">';
+    echo '<label>Status: ';
+    echo '<select name="status">';
+    $opts = ['' => 'vsetky','pending' => 'pending','waiting' => 'waiting','denied' => 'denied','active' => 'active','revoked' => 'revoked','expired' => 'expired'];
+    foreach ($opts as $k => $label) {
+      echo '<option value="' . esc_attr($k) . '"' . selected($status, $k, false) . '>' . esc_html($label) . '</option>';
+    }
+    echo '</select></label> ';
+    submit_button('Filter', 'secondary', '', false);
+    echo '</form>';
+
+    echo '<table class="widefat striped">';
+    echo '<thead><tr>';
+    echo '<th>ID</th><th>Nickname</th><th>Device</th><th>Code</th><th>Expires</th><th>Status</th><th>Created</th><th>Akcie</th>';
+    echo '</tr></thead><tbody>';
+
+    if (!$rows) {
+      echo '<tr><td colspan="8">Ziadne poziadavky.</td></tr>';
+    } else {
+      foreach ($rows as $row) {
+        $id = (int) ($row['id'] ?? 0);
+        $device_id = (string) ($row['device_id'] ?? '');
+        $device_short = $device_id !== '' ? substr($device_id, 0, 8) : '';
+        $nickname = (string) ($row['nickname'] ?? '');
+        $st = (string) ($row['status'] ?? '');
+        $expires_at = (string) ($row['code_expires_at'] ?? '');
+        $approval_code = (string) ($row['approval_code'] ?? '');
+        $created = (string) ($row['created_at'] ?? '');
+
+        if (in_array($st, ['pending','waiting'], true) && self::auth_is_expired($expires_at, $now)) {
+          $st = 'expired';
+          $wpdb->update($t, ['status' => 'expired', 'updated_at' => $now], ['id' => $id]);
+        }
+
+        echo '<tr>';
+        echo '<td>' . esc_html((string) $id) . '</td>';
+        echo '<td>' . esc_html($nickname) . '</td>';
+        echo '<td><code title="' . esc_attr($device_id) . '">' . esc_html($device_short) . '</code></td>';
+        echo '<td>' . esc_html($approval_code) . '</td>';
+        echo '<td>' . esc_html($expires_at) . '</td>';
+        echo '<td>' . esc_html($st) . '</td>';
+        echo '<td>' . esc_html($created) . '</td>';
+        echo '<td>';
+        echo '<form method="post" style="display:inline-block;margin-right:6px;">';
+        wp_nonce_field('bc_inv_chat_access_action', 'bc_inv_chat_access_nonce');
+        echo '<input type="hidden" name="req_id" value="' . esc_attr((string) $id) . '">';
+        echo '<input type="hidden" name="req_action" value="approve">';
+        echo '<button class="button">Approve</button>';
+        echo '</form>';
+
+        echo '<form method="post" style="display:inline-block;margin-right:6px;">';
+        wp_nonce_field('bc_inv_chat_access_action', 'bc_inv_chat_access_nonce');
+        echo '<input type="hidden" name="req_id" value="' . esc_attr((string) $id) . '">';
+        echo '<input type="hidden" name="req_action" value="deny">';
+        echo '<button class="button">Deny</button>';
+        echo '</form>';
+
+        echo '<form method="post" style="display:inline-block;">';
+        wp_nonce_field('bc_inv_chat_access_action', 'bc_inv_chat_access_nonce');
+        echo '<input type="hidden" name="req_id" value="' . esc_attr((string) $id) . '">';
+        echo '<input type="hidden" name="req_action" value="wait">';
+        echo '<button class="button">Wait</button>';
+        echo '</form>';
+
+        echo '</td>';
+        echo '</tr>';
+      }
+    }
+
+    echo '</tbody></table>';
+    echo '</div>';
+  }
 
 
 // Etapa B2 UX: Úprava rezervácie (detail) – otvorí sa kliknutím zo zoznamu

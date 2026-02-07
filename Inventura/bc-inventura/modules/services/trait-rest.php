@@ -3,6 +3,86 @@ if (!defined('ABSPATH')) exit;
 
 trait BC_Inv_Trait_REST {
 
+  // === PWA auth helpers (Phase 1) ===
+  protected static function auth_now(): string {
+    return current_time('mysql');
+  }
+
+  protected static function auth_is_valid_device_id(string $device_id): bool {
+    if ($device_id === '') return false;
+    return (bool) preg_match('/^[a-zA-Z0-9\-]{8,64}$/', $device_id);
+  }
+
+  protected static function auth_generate_approval_code(): string {
+    return (string) random_int(100000, 999999);
+  }
+
+  protected static function auth_code_expires_at(): string {
+    return date('Y-m-d H:i:s', time() + 15 * 60);
+  }
+
+  protected static function auth_is_expired(?string $expires_at, ?string $now = null): bool {
+    if (!$expires_at) return false;
+    $now = $now ?: self::auth_now();
+    return strtotime($expires_at) < strtotime($now);
+  }
+
+  protected static function auth_get_device_row(string $device_id): ?array {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE device_id=%s LIMIT 1", $device_id), ARRAY_A);
+    return is_array($row) ? $row : null;
+  }
+
+  protected static function auth_audit(string $action, array $payload = []): void {
+    global $wpdb;
+    try {
+      $t = self::table('audit');
+      $wpdb->insert($t, [
+        'store_id' => null,
+        'sheet_post_id' => null,
+        'actor_user_id' => is_user_logged_in() ? (int) get_current_user_id() : null,
+        'action' => $action,
+        'payload' => wp_json_encode($payload),
+        'created_at' => self::auth_now(),
+      ]);
+    } catch (Throwable $e) {
+      // best effort only
+    }
+  }
+
+  protected static function auth_create_user_from_nickname(string $nickname, string $device_id): int {
+    if (!function_exists('wp_create_user')) return 0;
+
+    $base = sanitize_user('pwa_' . $nickname, true);
+    if ($base === '') {
+      $base = 'pwa_device_' . substr(md5($device_id), 0, 6);
+    }
+
+    $login = $base;
+    $i = 1;
+    while (username_exists($login)) {
+      $login = $base . '_' . $i;
+      $i++;
+    }
+
+    $email = $login . '@example.invalid';
+    $password = wp_generate_password(20, true, true);
+    $user_id = wp_create_user($login, $password, $email);
+    if (is_wp_error($user_id)) return 0;
+
+    wp_update_user([
+      'ID' => $user_id,
+      'display_name' => $nickname !== '' ? $nickname : $login,
+      'nickname' => $nickname !== '' ? $nickname : $login,
+    ]);
+    if ($nickname !== '') {
+      update_user_meta($user_id, 'bc_inv_chat_nick', $nickname);
+    }
+
+    return (int) $user_id;
+  }
+
   public static function bypass_wp_rest_cookie_nonce_for_nonce_endpoint($result) {
     // Only apply to our nonce endpoint.
     $rest_route = isset($_REQUEST['rest_route']) ? (string) $_REQUEST['rest_route'] : '';
@@ -35,6 +115,69 @@ trait BC_Inv_Trait_REST {
       'callback' => function() {
         return new WP_REST_Response(['ok' => true, 'nonce' => wp_create_nonce('wp_rest')], 200);
       },
+    ]);
+
+    // --- PWA auth (Phase 1) ---
+
+    register_rest_route(self::REST_NS, '/auth/request-access', [
+      'methods' => 'POST',
+      'permission_callback' => '__return_true',
+      'callback' => [__CLASS__, 'rest_auth_request_access'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/auth/refresh', [
+      'methods' => 'POST',
+      'permission_callback' => '__return_true',
+      'callback' => [__CLASS__, 'rest_auth_refresh'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/me', [
+      'methods' => 'GET',
+      'permission_callback' => '__return_true',
+      'callback' => [__CLASS__, 'rest_auth_me'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/admin/access-requests', [
+      'methods' => 'GET',
+      'permission_callback' => function() {
+        return is_user_logged_in() && self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_admin_access_requests'],
+      'args' => [
+        'status' => ['required' => false],
+      ],
+    ]);
+
+    register_rest_route(self::REST_NS, '/admin/access-requests/(?P<id>\d+)/approve', [
+      'methods' => 'POST',
+      'permission_callback' => function() {
+        return is_user_logged_in() && self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_admin_access_request_approve'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/admin/access-requests/(?P<id>\d+)/deny', [
+      'methods' => 'POST',
+      'permission_callback' => function() {
+        return is_user_logged_in() && self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_admin_access_request_deny'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/admin/access-requests/(?P<id>\d+)/wait', [
+      'methods' => 'POST',
+      'permission_callback' => function() {
+        return is_user_logged_in() && self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_admin_access_request_wait'],
+    ]);
+
+    register_rest_route(self::REST_NS, '/admin/users/(?P<id>\d+)/disconnect', [
+      'methods' => 'POST',
+      'permission_callback' => function() {
+        return is_user_logged_in() && self::current_user_can_manage();
+      },
+      'callback' => [__CLASS__, 'rest_admin_user_disconnect'],
     ]);
 
     // POST sheet (from PWA)
@@ -143,6 +286,305 @@ trait BC_Inv_Trait_REST {
         'date_to' => ['required' => false],
       ],
     ]);
+  }
+
+  // --- PWA auth endpoints (Phase 1) ---
+
+  public static function rest_auth_request_access(WP_REST_Request $req) {
+    $device_id = trim((string) $req->get_header('X-Device-Id'));
+    if (!self::auth_is_valid_device_id($device_id)) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Invalid device_id'], 400);
+    }
+
+    $body = $req->get_json_params();
+    $nickname = is_array($body) && isset($body['nickname']) ? sanitize_text_field((string) $body['nickname']) : '';
+    $nickname = trim($nickname);
+    if ($nickname === '' || strlen($nickname) < 2 || strlen($nickname) > 32) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Invalid nickname'], 400);
+    }
+    if (!preg_match('/^[\p{L}0-9 _.-]+$/u', $nickname)) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Invalid nickname'], 400);
+    }
+
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $now = self::auth_now();
+    $expires_at = self::auth_code_expires_at();
+
+    $row = self::auth_get_device_row($device_id);
+    if (!$row) {
+      $code = self::auth_generate_approval_code();
+      $wpdb->insert($t, [
+        'device_id' => $device_id,
+        'nickname' => $nickname,
+        'status' => 'pending',
+        'approval_code' => $code,
+        'code_expires_at' => $expires_at,
+        'created_at' => $now,
+        'updated_at' => $now,
+      ]);
+      self::auth_audit('auth_request_access', ['device_id' => $device_id, 'status' => 'pending']);
+      return new WP_REST_Response([
+        'ok' => true,
+        'status' => 'pending',
+        'approval_code' => $code,
+        'expires_at' => $expires_at,
+      ], 200);
+    }
+
+    $status = (string) ($row['status'] ?? 'pending');
+    if ($status === 'active') {
+      return new WP_REST_Response(['ok' => true, 'status' => 'active'], 200);
+    }
+
+    $code = (string) ($row['approval_code'] ?? '');
+    $expires_at = (string) ($row['code_expires_at'] ?? '');
+    $expired = $expires_at !== '' && strtotime($expires_at) < strtotime($now);
+
+    if ($status === 'pending' || $status === 'waiting') {
+      if ($expired || $code === '') {
+        $code = self::auth_generate_approval_code();
+        $expires_at = self::auth_code_expires_at();
+        $wpdb->update($t, [
+          'approval_code' => $code,
+          'code_expires_at' => $expires_at,
+          'nickname' => $nickname,
+          'updated_at' => $now,
+        ], ['id' => (int) $row['id']]);
+      }
+      return new WP_REST_Response([
+        'ok' => true,
+        'status' => 'pending',
+        'approval_code' => $code,
+        'expires_at' => $expires_at,
+      ], 200);
+    }
+
+    $code = self::auth_generate_approval_code();
+    $expires_at = self::auth_code_expires_at();
+    $wpdb->update($t, [
+      'status' => 'pending',
+      'approval_code' => $code,
+      'code_expires_at' => $expires_at,
+      'nickname' => $nickname,
+      'updated_at' => $now,
+    ], ['id' => (int) $row['id']]);
+    self::auth_audit('auth_request_access', ['device_id' => $device_id, 'status' => 'pending']);
+    return new WP_REST_Response([
+      'ok' => true,
+      'status' => 'pending',
+      'approval_code' => $code,
+      'expires_at' => $expires_at,
+    ], 200);
+  }
+
+  public static function rest_auth_refresh(WP_REST_Request $req) {
+    $device_id = trim((string) $req->get_header('X-Device-Id'));
+    if (!self::auth_is_valid_device_id($device_id)) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Invalid device_id'], 400);
+    }
+
+    $row = self::auth_get_device_row($device_id);
+    if (!$row) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Unknown device'], 401);
+    }
+
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $status = (string) ($row['status'] ?? 'pending');
+    $now = self::auth_now();
+    $expires_at = (string) ($row['code_expires_at'] ?? '');
+
+    if (in_array($status, ['pending', 'waiting'], true) && self::auth_is_expired($expires_at, $now)) {
+      $status = 'expired';
+      $wpdb->update($t, ['status' => 'expired', 'updated_at' => $now], ['id' => (int) $row['id']]);
+    }
+
+    if ($status !== 'active') {
+      return new WP_REST_Response([
+        'ok' => true,
+        'status' => $status,
+        'expires_at' => $expires_at,
+      ], 200);
+    }
+
+    $wpdb->update($t, ['last_seen_at' => $now], ['id' => (int) $row['id']]);
+
+    return new WP_REST_Response([
+      'ok' => true,
+      'status' => 'active',
+      'user_id' => (int) ($row['user_id'] ?? 0),
+    ], 200);
+  }
+
+  public static function rest_auth_me(WP_REST_Request $req) {
+    $device_id = trim((string) $req->get_header('X-Device-Id'));
+    if (!self::auth_is_valid_device_id($device_id)) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Invalid device_id'], 400);
+    }
+
+    $row = self::auth_get_device_row($device_id);
+    if (!$row) {
+      return new WP_REST_Response(['ok' => false, 'error' => 'Unknown device'], 401);
+    }
+
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $status = (string) ($row['status'] ?? 'pending');
+    $now = self::auth_now();
+    $expires_at = (string) ($row['code_expires_at'] ?? '');
+
+    if (in_array($status, ['pending', 'waiting'], true) && self::auth_is_expired($expires_at, $now)) {
+      $status = 'expired';
+      $wpdb->update($t, ['status' => 'expired', 'updated_at' => $now], ['id' => (int) $row['id']]);
+    }
+
+    if ($status !== 'active') {
+      return new WP_REST_Response([
+        'ok' => true,
+        'status' => $status,
+        'expires_at' => $expires_at,
+        'nickname' => (string) ($row['nickname'] ?? ''),
+      ], 200);
+    }
+
+    $user_id = (int) ($row['user_id'] ?? 0);
+    $user = $user_id > 0 ? get_userdata($user_id) : null;
+
+    return new WP_REST_Response([
+      'ok' => true,
+      'status' => 'active',
+      'user' => $user ? [
+        'id' => (int) $user->ID,
+        'display_name' => (string) $user->display_name,
+      ] : null,
+      'nickname' => (string) ($row['nickname'] ?? ''),
+    ], 200);
+  }
+
+  public static function rest_admin_access_requests(WP_REST_Request $req) {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $status = sanitize_text_field((string) $req->get_param('status'));
+    $now = self::auth_now();
+
+    $where = [];
+    $args = [];
+    if ($status !== '') {
+      $where[] = 'status = %s';
+      $args[] = $status;
+    }
+
+    $sql = "SELECT * FROM $t";
+    if ($where) {
+      $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+    $sql .= ' ORDER BY created_at DESC';
+    if ($args) {
+      $sql = $wpdb->prepare($sql, $args);
+    }
+
+    $rows = $wpdb->get_results($sql, ARRAY_A);
+    $out = [];
+    foreach ($rows as $row) {
+      $device_id = (string) ($row['device_id'] ?? '');
+      $row_status = (string) ($row['status'] ?? '');
+      $expires_at = (string) ($row['code_expires_at'] ?? '');
+      if (in_array($row_status, ['pending', 'waiting'], true) && self::auth_is_expired($expires_at, $now)) {
+        $row_status = 'expired';
+        $wpdb->update($t, ['status' => 'expired', 'updated_at' => $now], ['id' => (int) $row['id']]);
+      }
+      $out[] = [
+        'id' => (int) $row['id'],
+        'device_id' => $device_id,
+        'device_id_short' => $device_id !== '' ? substr($device_id, 0, 8) : '',
+        'nickname' => (string) ($row['nickname'] ?? ''),
+        'status' => $row_status,
+        'approval_code' => (string) ($row['approval_code'] ?? ''),
+        'expires_at' => $expires_at,
+        'created_at' => (string) ($row['created_at'] ?? ''),
+      ];
+    }
+
+    return new WP_REST_Response(['ok' => true, 'requests' => $out], 200);
+  }
+
+  public static function rest_admin_access_request_approve(WP_REST_Request $req) {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $id = (int) $req->get_param('id');
+    if ($id <= 0) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid id'], 400);
+
+    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id=%d", $id), ARRAY_A);
+    if (!$row) return new WP_REST_Response(['ok' => false, 'error' => 'Not found'], 404);
+
+    $status = (string) ($row['status'] ?? 'pending');
+    if ($status === 'active') {
+      return new WP_REST_Response(['ok' => true, 'status' => 'active', 'user_id' => (int) $row['user_id']], 200);
+    }
+
+    $nickname = (string) ($row['nickname'] ?? '');
+    $user_id = (int) ($row['user_id'] ?? 0);
+    if ($user_id <= 0) {
+      $user_id = self::auth_create_user_from_nickname($nickname, (string) $row['device_id']);
+      if ($user_id <= 0) {
+        return new WP_REST_Response(['ok' => false, 'error' => 'User create failed'], 500);
+      }
+    }
+
+    $wpdb->update($t, [
+      'status' => 'active',
+      'user_id' => $user_id,
+      'approved_by' => (int) get_current_user_id(),
+      'approved_at' => self::auth_now(),
+      'updated_at' => self::auth_now(),
+    ], ['id' => $id]);
+
+    self::auth_audit('auth_request_approved', [
+      'device_id' => (string) ($row['device_id'] ?? ''),
+      'user_id' => $user_id,
+    ]);
+
+    return new WP_REST_Response(['ok' => true, 'status' => 'active', 'user_id' => $user_id], 200);
+  }
+
+  public static function rest_admin_access_request_deny(WP_REST_Request $req) {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $id = (int) $req->get_param('id');
+    if ($id <= 0) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid id'], 400);
+
+    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id=%d", $id), ARRAY_A);
+    if (!$row) return new WP_REST_Response(['ok' => false, 'error' => 'Not found'], 404);
+
+    $wpdb->update($t, ['status' => 'denied', 'updated_at' => self::auth_now()], ['id' => $id]);
+    self::auth_audit('auth_request_denied', ['device_id' => (string) ($row['device_id'] ?? '')]);
+    return new WP_REST_Response(['ok' => true, 'status' => 'denied'], 200);
+  }
+
+  public static function rest_admin_access_request_wait(WP_REST_Request $req) {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $id = (int) $req->get_param('id');
+    if ($id <= 0) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid id'], 400);
+
+    $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM $t WHERE id=%d", $id), ARRAY_A);
+    if (!$row) return new WP_REST_Response(['ok' => false, 'error' => 'Not found'], 404);
+
+    $wpdb->update($t, ['status' => 'waiting', 'updated_at' => self::auth_now()], ['id' => $id]);
+    self::auth_audit('auth_request_wait', ['device_id' => (string) ($row['device_id'] ?? '')]);
+    return new WP_REST_Response(['ok' => true, 'status' => 'waiting'], 200);
+  }
+
+  public static function rest_admin_user_disconnect(WP_REST_Request $req) {
+    global $wpdb;
+    $t = self::table('auth_devices');
+    $user_id = (int) $req->get_param('id');
+    if ($user_id <= 0) return new WP_REST_Response(['ok' => false, 'error' => 'Invalid user_id'], 400);
+
+    $updated = $wpdb->update($t, ['status' => 'revoked'], ['user_id' => $user_id]);
+    self::auth_audit('auth_user_disconnect', ['user_id' => $user_id, 'count' => (int) $updated]);
+    return new WP_REST_Response(['ok' => true, 'updated' => (int) $updated], 200);
   }
 
   public static function rest_post_sheet(WP_REST_Request $req) {
